@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Budget Buddy</title>
+<style>
+  :root {
+    --bg: #fff5f8; --card: #ffffff; --ink: #4a3b47; --muted: #9a8a96;
+    --line: #f3dbe5; --accent: #ff8fb1; --left: #d9d2de;
+    --need: #ffb3c7; --want: #b8a7ff; --save: #8fdcc0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #231a22; --card: #2e232d; --ink: #f6e9f1; --muted: #b9a4b3;
+            --line: #43344a; --left: #4a3d4d; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.4 "Nunito", "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 56px; }
+  h1 { text-align: center; margin: 8px 0 4px; font-size: 2rem; }
+  .sub { text-align: center; color: var(--muted); margin: 0 0 20px; }
+  .card { background: var(--card); border-radius: 22px; padding: 18px;
+          margin-bottom: 16px; box-shadow: 0 6px 20px rgba(255,143,177,.18); }
+  h2 { margin: 0 0 12px; font-size: 1.1rem; }
+  label.income { display: flex; align-items: center; gap: 10px; font-weight: 700; }
+  input, select { font: inherit; color: var(--ink); background: var(--bg);
+                  border: 2px solid var(--line); border-radius: 12px; padding: 8px 10px; min-width: 0; }
+  input:focus, select:focus { outline: none; border-color: var(--accent); }
+  .row { display: grid; grid-template-columns: 1fr 100px 110px 36px; gap: 8px; margin-bottom: 8px; }
+  .row button { border: 0; background: transparent; font-size: 1.1rem; cursor: pointer; color: var(--muted); }
+  .row button:hover { color: var(--accent); }
+  .add { width: 100%; margin-top: 4px; padding: 10px; border: 2px dashed var(--accent);
+         background: transparent; color: var(--accent); border-radius: 14px; font: inherit;
+         font-weight: 700; cursor: pointer; }
+  .add:hover { background: var(--bg); }
+  .chart { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; justify-content: center; }
+  svg { width: 240px; height: 240px; flex: none; }
+  .center-big { font-size: 20px; font-weight: 800; fill: var(--ink); }
+  .center-small { font-size: 10px; fill: var(--muted); }
+  .legend { list-style: none; padding: 0; margin: 0; flex: 1; min-width: 200px; }
+  .legend li { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+  .dot { width: 14px; height: 14px; border-radius: 50%; flex: none; }
+  .legend .amt { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .tips { list-style: none; margin: 0; padding: 0; }
+  .tips li { background: var(--bg); border-radius: 14px; padding: 10px 12px; margin-bottom: 8px; }
+  .good { color: #2f9e77; font-weight: 700; }
+  .bad { color: #e0527e; font-weight: 700; }
+  .bars { display: grid; gap: 8px; }
+  .bar { display: grid; grid-template-columns: 70px 1fr 90px; gap: 8px; align-items: center; font-size: .9rem; }
+  .track { height: 12px; background: var(--line); border-radius: 99px; position: relative; overflow: hidden; }
+  .fill { height: 100%; border-radius: 99px; }
+  .mark { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--ink); opacity: .5; }
+  small { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>🌸 Budget Buddy 🌸</h1>
+  <p class="sub">Pop in your income and expenses, and see where it all goes.</p>
+
+  <section class="card">
+    <label class="income">💰 Monthly income $
+      <input id="income" type="number" min="0" step="any" placeholder="3000" inputmode="decimal">
+    </label>
+  </section>
+
+  <section class="card">
+    <h2>🧾 Expenses</h2>
+    <div id="rows"></div>
+    <button class="add" id="add">+ add expense</button>
+  </section>
+
+  <section class="card">
+    <h2>🍩 Where it goes</h2>
+    <div class="chart">
+      <svg id="donut" viewBox="0 0 120 120" role="img" aria-label="Spending breakdown donut chart"></svg>
+      <ul class="legend" id="legend"></ul>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>📊 Needs / Wants / Savings <small>(50 / 30 / 20 guide)</small></h2>
+    <div class="bars" id="bars"></div>
+  </section>
+
+  <section class="card">
+    <h2>✂️ What to trim</h2>
+    <ul class="tips" id="tips"></ul>
+  </section>
+</main>
+
+<script>
+const TYPES = {
+  need: { label: "Need", color: "var(--need)", target: 0.5 },
+  want: { label: "Want", color: "var(--want)", target: 0.3 },
+  save: { label: "Savings", color: "var(--save)", target: 0.2 },
+};
+const PALETTE = ["#ff8fb1","#ffb86b","#ffe27a","#8fdcc0","#7cc6ff","#b8a7ff","#f59be0","#a3e07a","#ff9a8a","#9ad0d6"];
+const DEFAULT = [
+  { name: "Rent", amount: 1100, type: "need" },
+  { name: "Groceries", amount: 350, type: "need" },
+  { name: "Subscriptions", amount: 60, type: "want" },
+  { name: "Eating out", amount: 250, type: "want" },
+  { name: "Emergency fund", amount: 300, type: "save" },
+];
+let state = { income: 3000, items: DEFAULT };
+try { const s = JSON.parse(localStorage.getItem("budget-buddy")); if (s && s.items) state = s; } catch (e) {}
+
+const $ = id => document.getElementById(id);
+const money = n => "$" + Math.round(n).toLocaleString();
+const pct = n => Math.round(n * 100) + "%";
+const save = () => { try { localStorage.setItem("budget-buddy", JSON.stringify(state)); } catch (e) {} };
+
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+function renderRows() {
+  $("rows").innerHTML = state.items.map((it, i) => `
+    <div class="row">
+      <input data-i="${i}" data-f="name" value="${esc(it.name)}" placeholder="Expense" aria-label="Expense name">
+      <input data-i="${i}" data-f="amount" type="number" min="0" step="any" inputmode="decimal" value="${it.amount}" aria-label="Amount">
+      <select data-i="${i}" data-f="type" aria-label="Type">
+        ${Object.entries(TYPES).map(([k, v]) => `<option value="${k}" ${k === it.type ? "selected" : ""}>${v.label}</option>`).join("")}
+      </select>
+      <button data-del="${i}" aria-label="Remove ${esc(it.name)}">✕</button>
+    </div>`).join("");
+}
+
+function slicePath(a0, a1, r0, r1) {
+  const p = (a, r) => [60 + r * Math.sin(a), 60 - r * Math.cos(a)];
+  const large = a1 - a0 > Math.PI ? 1 : 0;
+  const [x0, y0] = p(a0, r1), [x1, y1] = p(a1, r1), [x2, y2] = p(a1, r0), [x3, y3] = p(a0, r0);
+  return `M${x0} ${y0} A${r1} ${r1} 0 ${large} 1 ${x1} ${y1} L${x2} ${y2} A${r0} ${r0} 0 ${large} 0 ${x3} ${y3}Z`;
+}
+
+function renderChart(income, spent, items) {
+  const left = Math.max(0, income - spent);
+  const total = Math.max(income, spent) || 1;
+  const parts = items.filter(i => i.amount > 0).map((it, i) => ({ name: it.name || "Untitled", v: it.amount, color: PALETTE[i % PALETTE.length] }));
+  if (left > 0) parts.push({ name: "Left over", v: left, color: "var(--left)" });
+  let a = 0, svg = "";
+  if (!parts.length) svg = `<circle cx="60" cy="60" r="41" fill="none" stroke="var(--left)" stroke-width="26"/>`;
+  parts.forEach(p => {
+    const sweep = p.v / total * Math.PI * 2;
+    if (sweep >= Math.PI * 2 - 1e-6) svg += `<circle cx="60" cy="60" r="41" fill="none" stroke="${p.color}" stroke-width="26"><title>${esc(p.name)}</title></circle>`;
+    else svg += `<path d="${slicePath(a, a + sweep, 28, 54)}" fill="${p.color}" stroke="var(--card)" stroke-width="1"><title>${esc(p.name)}: ${money(p.v)}</title></path>`;
+    a += sweep;
+  });
+  const diff = income - spent;
+  svg += `<text x="60" y="58" text-anchor="middle" class="center-big" style="font-size:11px;fill:${diff < 0 ? "#e0527e" : "var(--ink)"}">${diff < 0 ? "-" : ""}${money(Math.abs(diff))}</text>
+          <text x="60" y="70" text-anchor="middle" class="center-small">${diff < 0 ? "over budget" : "left over"}</text>`;
+  $("donut").innerHTML = svg;
+  $("legend").innerHTML = parts.map(p => `<li><span class="dot" style="background:${p.color}"></span>${esc(p.name)}<span class="amt">${money(p.v)} · ${pct(p.v / total)}</span></li>`).join("");
+}
+
+function renderBars(income, items, spent) {
+  const sums = { need: 0, want: 0, save: 0 };
+  items.forEach(i => sums[i.type] += i.amount);
+  $("bars").innerHTML = Object.entries(TYPES).map(([k, t]) => {
+    const share = income > 0 ? sums[k] / income : 0;
+    const w = Math.min(100, share * 100);
+    return `<div class="bar"><span>${t.label}</span>
+      <div class="track"><div class="fill" style="width:${w}%;background:${t.color}"></div><div class="mark" style="left:${t.target * 100}%"></div></div>
+      <span>${pct(share)} / ${pct(t.target)}</span></div>`;
+  }).join("");
+  return sums;
+}
+
+function renderTips(income, items, spent, sums) {
+  const tips = [];
+  if (income <= 0) { $("tips").innerHTML = "<li>Enter your income to get suggestions 💌</li>"; return; }
+  const over = spent - income;
+  const wants = items.filter(i => i.type === "want" && i.amount > 0).sort((a, b) => b.amount - a.amount);
+
+  if (over > 0) {
+    tips.push(`<span class="bad">You're ${money(over)} over budget.</span> Here's what to cut first:`);
+    let need = over;
+    for (const w of wants) {
+      if (need <= 0) break;
+      const cut = Math.min(w.amount, need);
+      tips.push(`✂️ Trim <b>${esc(w.name || "Untitled")}</b> by ${money(cut)}${cut >= w.amount ? " (remove it)" : ""}`);
+      need -= cut;
+    }
+    if (need > 0) tips.push(`Wants alone won't cover it, still ${money(need)} short. Look at your biggest Needs (cheaper plan, roommate, fewer groceries delivered?).`);
+  } else {
+    tips.push(`<span class="good">You're in the green with ${money(-over)} to spare!</span>`);
+  }
+
+  const wantExcess = sums.want - income * TYPES.want.target;
+  if (wantExcess > 0 && wants.length) {
+    tips.push(`Wants are ${pct(sums.want / income)} of income (guide: 30%). Trimming about ${money(wantExcess)} gets you there. Biggest one: <b>${esc(wants[0].name || "Untitled")}</b> (${money(wants[0].amount)}).`);
+  }
+  if (sums.need > income * TYPES.need.target) tips.push(`Needs are ${pct(sums.need / income)} of income (guide: 50%). Worth a look at your biggest fixed costs.`);
+  const saveGap = income * TYPES.save.target - sums.save;
+  if (saveGap > 0 && over <= 0) tips.push(`Savings are ${pct(sums.save / income)} (guide: 20%). Moving ${money(Math.min(saveGap, income - spent > 0 ? income - spent : saveGap))} more into savings would help.`);
+  if (over <= 0 && wantExcess <= 0 && saveGap <= 0 && sums.need <= income * 0.5) tips.push("Everything lines up with the 50/30/20 guide. Nothing to trim! 🎉");
+  $("tips").innerHTML = tips.map(t => `<li>${t}</li>`).join("");
+}
+
+function render(rows = false) {
+  if (rows) renderRows();
+  const income = Math.max(0, +state.income || 0);
+  const items = state.items.map(i => ({ ...i, amount: Math.max(0, +i.amount || 0) }));
+  const spent = items.reduce((s, i) => s + i.amount, 0);
+  renderChart(income, spent, items);
+  const sums = renderBars(income, items, spent);
+  renderTips(income, items, spent, sums);
+  save();
+}
+
+$("income").value = state.income;
+$("income").addEventListener("input", e => { state.income = e.target.value; render(); });
+$("rows").addEventListener("input", e => {
+  const { i, f } = e.target.dataset;
+  if (i === undefined) return;
+  state.items[i][f] = f === "amount" ? e.target.value : e.target.value;
+  render();
+});
+$("rows").addEventListener("click", e => {
+  const d = e.target.dataset.del;
+  if (d === undefined) return;
+  state.items.splice(+d, 1); render(true);
+});
+$("add").addEventListener("click", () => { state.items.push({ name: "", amount: 0, type: "want" }); render(true); });
+render(true);
+</script>
+</body>
+</html>
